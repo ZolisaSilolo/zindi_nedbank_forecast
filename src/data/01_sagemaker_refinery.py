@@ -1,20 +1,23 @@
 """
 Phase 2 | SageMaker Studio Lab (CPU)
 Aggregates 18M transaction rows into a customer-level parquet and uploads to HF.
-Env vars required: HF_TOKEN, HF_REPO
+Env vars required: HF_TOKEN, HF_REPO, DATA_DIR (optional, defaults to data/raw)
 """
 import os
 import polars as pl
 from datetime import datetime
+from dotenv import load_dotenv
 from huggingface_hub import HfApi
+
+load_dotenv()
 
 
 def process_and_upload():
-    print("Initiating 18M row aggregation...")
+    data_dir = os.environ.get("DATA_DIR", "data/raw")
+    print(f"Initiating 18M row aggregation from {data_dir}...")
 
-    txns = pl.scan_csv("data/raw/transactions_features.csv").with_columns(
-        pl.col("Date").str.strptime(pl.Datetime, "%Y-%m-%d %H:%M:%S")
-          .dt.truncate("1mo").alias("Month_Start")
+    txns = pl.scan_parquet(f"{data_dir}/transactions_features.parquet").with_columns(
+        pl.col("TransactionDate").dt.truncate("1mo").alias("Month_Start")
     )
 
     months = pl.DataFrame({
@@ -44,20 +47,28 @@ def process_and_upload():
         pl.col("txn_count").alias("monthly_txn_history"),
         pl.col("txn_count").sum().alias("total_historical_txns"),
         pl.col("txn_count").last().alias("last_month_txns"),
+        # Holiday anchor: Nov/Dec/Jan transactions across all history years
         pl.col("txn_count")
           .filter(pl.col("Month_Start").dt.month().is_in([11, 12, 1]))
           .sum().alias("historical_holiday_txns"),
     ])
 
-    fin_features = pl.scan_csv("data/raw/financials_features.csv").group_by("UniqueID").agg([
+    # README: 567 customers have no financials — left join + fill_null preserves them
+    fin_features = pl.scan_parquet(f"{data_dir}/financials_features.parquet").group_by("UniqueID").agg([
         pl.col("NetInterestIncome").mean().alias("avg_net_interest_income"),
         pl.col("NetInterestIncome").var().alias("volatility_interest_income"),
         (pl.col("TransactionalRevenue").sum() / (pl.col("InvestmentsRevenue").sum() + 1.0))
           .alias("liquidity_preference_ratio"),
     ])
 
-    final_df = customer_features.join(fin_features, on="UniqueID", how="left").collect()
+    final_df = (
+        customer_features
+        .join(fin_features, on="UniqueID", how="left")
+        .fill_null(0.0)
+        .collect()
+    )
 
+    os.makedirs("data/processed", exist_ok=True)
     out_path = "data/processed/customer_base_features.parquet"
     final_df.write_parquet(out_path)
     print(f"Wrote {len(final_df)} rows → {out_path}")
