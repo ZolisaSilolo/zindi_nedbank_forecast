@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.parquet
+*.csv
+*.zip
+.ipynb_checkpoints/
+.venv/
+*.egg-info/
+dist/
