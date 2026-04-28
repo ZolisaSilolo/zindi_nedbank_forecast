@@ -56,9 +56,8 @@ def process_and_upload():
     # README: 567 customers have no financials — left join + fill_null preserves them
     fin_features = pl.scan_parquet(f"{data_dir}/financials_features.parquet").group_by("UniqueID").agg([
         pl.col("NetInterestIncome").mean().alias("avg_net_interest_income"),
-        pl.col("NetInterestIncome").var().alias("volatility_interest_income"),
-        (pl.col("TransactionalRevenue").sum() / (pl.col("InvestmentsRevenue").sum() + 1.0))
-          .alias("liquidity_preference_ratio"),
+        pl.col("NetInterestIncome").std().alias("volatility_interest_income"),
+        pl.col("NetInterestRevenue").mean().alias("avg_net_interest_revenue"),
     ])
 
     final_df = (
