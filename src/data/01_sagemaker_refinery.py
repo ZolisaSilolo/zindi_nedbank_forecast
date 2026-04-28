@@ -17,13 +17,13 @@ def process_and_upload():
     print(f"Initiating 18M row aggregation from {data_dir}...")
 
     txns = pl.scan_parquet(f"{data_dir}/transactions_features.parquet").with_columns(
-        pl.col("TransactionDate").dt.truncate("1mo").alias("Month_Start")
+        pl.col("TransactionDate").dt.truncate("1mo").cast(pl.Date).alias("Month_Start")
     )
 
     months = pl.DataFrame({
         "Month_Start": pl.date_range(
             datetime(2012, 12, 1), datetime(2015, 10, 1), "1mo", eager=True
-        )
+        ).cast(pl.Date)
     }).lazy()
 
     dense_grid = txns.select("UniqueID").unique().join(months, how="cross")
